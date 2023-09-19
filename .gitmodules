@@ -6,3 +6,12 @@
 [submodule "CapitalistPigs/lib/forge-std"]
 	path = CapitalistPigs/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "UniswapV3Factory/lib/forge-std"]
+	path = UniswapV3Factory/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "TetherToken/lib/forge-std"]
+	path = TetherToken/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "AppProxyUpgradeable/lib/forge-std"]
+	path = AppProxyUpgradeable/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

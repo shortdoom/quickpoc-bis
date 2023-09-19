@@ -1,15 +1,23 @@
 #!/bin/bash
 
-#===== VARIABLES ======
+# Load environment variables from .env file
+source .env  # Load variables from .env file into the script's environment
 
+# Debugging options (uncomment for debugging)
+# set -e  # Exit on first error
+# set -x  # Print each command before executing it
+
+#===== VARIABLES ======
+# Define a constant for the Ethereum zero address
 ZERO_ADDRESS=0x0000000000000000000000000000000000000000
 
 # ===== FUNCTIONS ======
-
+# Function to print usage instructions
 printUsage () {
    echo "Usage: $0 <contract-name> [<folder-name>]"
 }
 
+# Function to check if a command exists
 # param 1 - command to check
 checkCommandExists () {
    if ! command -v $1 > /dev/null ; then
@@ -19,7 +27,7 @@ checkCommandExists () {
 }
 
 # ====== CHECKS ======
-
+# Check for required commands
 checkCommandExists jq
 checkCommandExists forge
 checkCommandExists cast
@@ -28,25 +36,27 @@ checkCommandExists surya
 checkCommandExists dot
 checkCommandExists sol2uml
 
-if [ "${1:0:2}" != "0x" ] ; then #if first 2 chars of $1 (contract name) don't start with "0x", fail
+# Validate the first argument (contract address)
+if [ "${1:0:2}" != "0x" ] ; then
    printUsage
    exit 1
 fi
 
+# Check for required environment variables
 if [ -z "$ETHERSCAN_API_KEY" ]; then
    echo "Please set ETHERSCAN_API_KEY variable"
    exit 1
 fi
-
 if [ -z "$ETH_RPC_URL" ]; then
    echo "Please set ETH_RPC_URL variable"
    exit 1
 fi
 
 # ====== SETUP POC =====
-
+# Fetch the implementation address for EIP-1967 proxies
 proxy_impl=$(cast --abi-decode "sig()(address)"  $(cast storage $1 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc))
 
+# Determine the logic and data contracts
 if [ "$proxy_impl" == "$ZERO_ADDRESS" ] ; then
    logic_contract=$1
    data_contract=$1
@@ -55,49 +65,86 @@ else
    data_contract=$1
 fi
 
+# Fetch the contract name from Etherscan
 name=$(curl -s --location --request GET "https://api.etherscan.io/api?module=contract&action=getsourcecode&address=${logic_contract}&apikey=${ETHERSCAN_API_KEY}" | jq -r '.result'[0].ContractName)
 folder=$name
 
-if [ $# -gt 2 ]; then
-    echo "error: max 2 arguments allowed"
+# Validate the number of arguments
+if [ $# -gt 3 ]; then
+    echo "error: max 3 arguments allowed"
     exit 1
 elif [ $# -eq 2 ]; then
     folder=$2
 fi
+
+# Check if the folder already exists
 if [ -d ${folder} ]; then
     echo "error: already folder named $name - enter a custom name as a second arg"
     exit 1
 fi
 
+# Initialize the project folder
 forge init $folder --no-commit
 cd $folder
 rm -rf src
 rm -rf script
 
+# Download the contract source code from Etherscan
 cast etherscan-source -d src --etherscan-api-key $ETHERSCAN_API_KEY $logic_contract
 
-forge remappings > remappings.txt
-for library in $(ls src/${name})
-do
-    if [ $library != contracts ]
-        then
-            echo "${library}/=src/${name}/${library}/" >> remappings.txt
-    fi
+# Remove the default test file
+rm test/Counter.t.sol
+
+# ====== FLATTEN IMPORTS FOR EASE ======
+# Define directories
+ROOT_DIR="./src"
+FLAT_DIR="./flattened_contracts"
+mkdir -p $FLAT_DIR
+
+# Copy Solidity files to the flattened directory
+find $ROOT_DIR -name '*.sol' -exec sh -c 'cp "$1" "'$FLAT_DIR'/$(basename $1)"' _ {} \;
+
+# Update the import paths in each Solidity file
+for file in $FLAT_DIR/*.sol; do
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ $line == import* ]]; then
+            import_path=$(echo $line | awk -F'"' '{print $2}')
+            base_name=$(basename "$import_path")
+            echo "import \"./$base_name\";" >> "$temp_file"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$file"
+    mv "$temp_file" "$file"
 done
 
-rm test/Counter.t.sol
-touch test/POC.t.sol
+# Replace the original src directory
+rm -rf src
+mv flattened_contracts src
 
+echo "Flattening complete."
+
+# ====== BUILD POC.T.SOL ======
+# Create the test file and populate it
+touch test/POC.t.sol
+solidity_version=$(grep -m 1 'pragma solidity' src/$name.sol | awk -F'solidity' '{print $2;}' | sed 's/;//')
+
+# ... (rest of the code for generating POC.t.sol)
 cat << EOF >> test/POC.t.sol
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity$solidity_version;
 
 import "forge-std/Test.sol";
 EOF
 
-for file in $(find src/${name}/contracts -name '*.sol')
+for file in $(find src/ -name '*.sol')
 do
-    echo "import \"../$file\";" >> test/POC.t.sol
+    filename=$(basename "$file")
+    if [ $filename == $name.sol ]
+        then
+            echo "import \"../src/$filename\";" >> test/POC.t.sol
+    fi
 done
 
 cat << EOF >> test/POC.t.sol
@@ -112,15 +159,19 @@ contract ${name}POC is Test {
 }
 EOF
 
+# ===== REMAPPINGS FOR LIB =====
+# Generate remappings for libraries
+forge remappings > remappings.txt
+for library in $(ls lib); do
+    if [ $library != contracts ]; then
+        echo "${library}/=lib/${library}/" >> remappings.txt
+    fi
+done
+
 # ===== GRAPHING =====
-
+# Generate various graphs and diagrams
 mkdir assets
-
-LIST=$(find src -type f -name '*.sol') # glob expansion doesn't work here in Linux for some reason
+LIST=$(find src -type f -name '*.sol')
 surya graph $LIST | dot -Tpng > assets/${name}-flow-graph.png
 sol2uml class -n mainnet -k $ETHERSCAN_API_KEY -o assets/${name}-UML.svg $logic_contract
 sol2uml storage -n mainnet -k $ETHERSCAN_API_KEY -o assets/${name}-storage.svg $logic_contract
-
-# ===== MISC =====
-
-echo "cd ${name}" | pbcopy 

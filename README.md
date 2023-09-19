@@ -1,6 +1,39 @@
-# quickpoc
+# quickpoc-bis
 
-easy POC template generation from the command line
+forked! easy POC template generation from the command line
+
+## personal changes
+
+- add .env (just because)
+- fix messy directories by just flattening everything into /src
+- fix import paths to be always relative (compiler doesn't mind)
+- adjust pragma solidity in POC.t.sol (90% of cases require it)
+- remappings only for /lib (some edge cases are nasty)
+- comments!
+
+## personal note
+
+catching edge cases in bash is hard. some of edge cases user needs to for now resolve manually:
+
+- missing last closing bracket for some contracts downloaded
+- "pragma abicoder v2;" missing when needed in POC.t.sol
+- remember to provide checksumed address otherwise tests will not build
+- no edge case for import paths using ' and not " (uni v3)
+- forge-std won't compile for <0.6.2
+- ...more
+
+best to run `forge build` inside the directory and just resolve manually
+
+other best is to just re-write in python
+
+## edge cases
+
+requiring always different type of intervention. after resolving contracts will compile.
+
+UniswapV3Factory: 0x1F98431c8aD98523631AE4a59f267346ea31F984
+RocketETH: 0xae78736Cd615f374D3085123A210448E74Fc6393 
+Comet (Compound): 0x1C1853Bc7C6bFf0D276Da53972C0b1a066DB1AE7 (bracket)
+stEth: 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84 (diff proxy)
 
 ## features
 
